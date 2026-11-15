@@ -47,11 +47,12 @@ func TestASendIsAClientSpan(t *testing.T) {
 
 func TestAFailedSendIsAnError(t *testing.T) {
 	for _, testCase := range []struct {
-		err       error
-		permanent bool
+		err         error
+		permanent   bool
+		description string
 	}{
-		{err: errors.New("connection reset")},
-		{err: fmt.Errorf("%w: 550", mail.ErrPermanent), permanent: true},
+		{err: errors.New("451 4.3.0 <ada@example.com> try again"), description: "temporary failure"},
+		{err: fmt.Errorf("%w: 550 5.1.1 <ada@example.com>: Recipient address rejected", mail.ErrPermanent), permanent: true, description: "permanent failure"},
 	} {
 		recorder := &mailtest.Recorder{}
 		recorder.FailWith(testCase.err)
@@ -61,8 +62,9 @@ func TestAFailedSendIsAnError(t *testing.T) {
 
 		span := spans.Ended()[0]
 		require.Equal(t, codes.Error, span.Status().Code)
+		require.Equal(t, testCase.description, span.Status().Description)
 		require.Contains(t, span.Attributes(), attribute.Bool(oteladapter.AttributePermanent, testCase.permanent))
-		require.Len(t, span.Events(), 1, "the recorded error")
+		require.Empty(t, span.Events(), "the error text quotes the address")
 	}
 }
 

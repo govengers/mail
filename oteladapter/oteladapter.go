@@ -20,7 +20,8 @@ const ScopeName = "github.com/govengers/mail/oteladapter"
 // SpanName is the name of every send span.
 const SpanName = "mail.send"
 
-// The span attributes. Addresses and subjects are personal data and never recorded.
+// The span attributes. Addresses, subjects and error texts (which quote addresses) are personal
+// data and never recorded.
 const (
 	AttributeTransport   = "mail.transport"
 	AttributeRecipients  = "mail.recipients"
@@ -45,8 +46,9 @@ type transport struct {
 }
 
 // NewTransport returns options.Transport wrapped in a span per send. Put it between the Mailer
-// and the real transport: mail.New(&mail.Options{Transport: traced}). A failed send records the
-// error and sets the span's status to error; a permanent one sets mail.permanent.
+// and the real transport: mail.New(&mail.Options{Transport: traced}). A failed send sets the
+// span's status to error with the description "permanent failure" or "temporary failure" and the
+// mail.permanent attribute. The error text is not recorded: a server's reply quotes addresses.
 func NewTransport(options *Options) (mail.Transport, error) {
 	if options == nil || options.Transport == nil {
 		return nil, errors.New("oteladapter: Options.Transport is required")
@@ -69,9 +71,14 @@ func (t *transport) Send(ctx context.Context, message *mail.Message) error {
 	defer span.End()
 	err := t.next.Send(ctx, message)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
-		span.SetAttributes(attribute.Bool(AttributePermanent, errors.Is(err, mail.ErrPermanent)))
+		// Never the error text: a server's reply usually quotes the rejected address.
+		permanent := errors.Is(err, mail.ErrPermanent)
+		description := "temporary failure"
+		if permanent {
+			description = "permanent failure"
+		}
+		span.SetStatus(codes.Error, description)
+		span.SetAttributes(attribute.Bool(AttributePermanent, permanent))
 	}
 	return err
 }

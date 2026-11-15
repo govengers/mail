@@ -39,4 +39,4 @@ Writes headers, attachments (name, type, size), the text part and the HTML per m
 
 ## Tracing and metrics
 
-`oteladapter.NewTransport` wraps any transport in a `mail.send` client span with recipient and attachment counts (no addresses). `prometheusadapter.Metrics` is an Observer: `<ns>_mail_sends_total{result}` and `<ns>_mail_send_duration_seconds{result}`, result one of `sent`, `invalid`, `rejected`, `failed`.
+`oteladapter.NewTransport` wraps any transport in a `mail.send` client span with recipient and attachment counts (no addresses). A failed send has status error, description `permanent failure` or `temporary failure`, and `mail.permanent`; the error text stays out of the trace because it quotes addresses, so log it on the wide event if you need it. `prometheusadapter.Metrics` is an Observer: `<ns>_mail_sends_total{result}` and `<ns>_mail_send_duration_seconds{result}`, result one of `sent`, `invalid`, `rejected`, `failed`.
