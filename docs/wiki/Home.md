@@ -7,7 +7,7 @@ Transactional mail for govengers services. Read [docs/design.md](../design.md) f
 | Need | Use |
 |---|---|
 | send a mail now, the caller waits | `mailer.Send(ctx, message)` |
-| send a mail after a change commits, with retries | `jobsadapter.Handle` + `store.Enqueue(ctx, tx, MailKind.New(*message, nil))`, see [Jobs](Jobs.md) |
+| send a mail after a change commits, with retries | `jobsadapter.Handle` + `store.Enqueue(ctx, tx, jobsadapter.Kind.New(*message, nil))`, see [Jobs](Jobs.md) |
 | production transport | `smtp.New` (any provider, at least once) or `resend.New` (idempotent retries), see [Transports](Transports.md) |
 | local development | `logmailer.New(&logmailer.Options{Writer: os.Stderr})` |
 | render a mail | `mail.NewTemplates` + `Render(name, locale, data)`, see [Templates](Templates.md) |
@@ -24,7 +24,7 @@ traced, err := oteladapter.NewTransport(&oteladapter.Options{Transport: transpor
 metrics, err := prometheusadapter.New(&prometheusadapter.Options{Registerer: registry, Namespace: "tasks"})
 mailer, err := mail.New(&mail.Options{Transport: traced, From: config.MailFrom, Observer: metrics})
 templates, err := mail.NewTemplates(&mail.TemplatesOptions{FS: templateFiles, DefaultLocale: "en"})
-err = jobsadapter.Handle(worker, MailKind, mailer)
+err = jobsadapter.Handle(worker, jobsadapter.Kind, mailer)
 ```
 
 Every constructor validates its options and returns an error; nothing connects before the first send. The library never logs (LIB-003): outcomes go to the Observer, errors to the caller.

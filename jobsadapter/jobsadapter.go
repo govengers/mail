@@ -2,17 +2,19 @@
 // transaction as the change that causes it and goes out after the commit, with retries. It is a
 // module of its own, so the mail module does not depend on govengers/jobs.
 //
-// Declare the kind once, register the handler on the worker, and enqueue a rendered message in
-// the caller's transaction:
+// Register the handler of Kind on the worker, and enqueue a rendered message in the caller's
+// transaction:
 //
-//	var MailKind = jobs.NewKind[mail.Message]("mail.send", &jobs.KindOptions{Queue: "mail"})
+//	err := jobsadapter.Handle(worker, jobsadapter.Kind, mailer)
+//	_, err = store.Enqueue(ctx, transaction, jobsadapter.Kind.New(*message, nil))
 //
-//	err := jobsadapter.Handle(worker, MailKind, mailer)
-//	_, err = store.Enqueue(ctx, transaction, MailKind.New(*message, nil))
+// A service that needs another queue, attempt count or backoff declares its own
+// jobs.NewKind[mail.Message] and passes it instead.
 //
 // A job attempt sends with the job's ID as the message's IdempotencyKey unless the message has
 // one, so the resend transport delivers once across retries (within Resend's 24 hours). The smtp
-// transport has no such key: a retry after a lost reply delivers again, so SMTP is at least once.
+// transport has no such key: a retry after a lost reply delivers again, so SMTP is at least once;
+// its Message-ID follows the key, so receivers that deduplicate on it drop the copy.
 // A failure that matches mail.ErrPermanent (an invalid message, a rejected recipient) ends the job
 // as dead at once; every other failure retries with the kind's backoff.
 //
@@ -28,6 +30,10 @@ import (
 
 	"github.com/govengers/mail"
 )
+
+// Kind is the default kind for outgoing mail: name "mail.send" on the queue "mail", with jobs'
+// default attempts and backoff. A kind is a value without state, so sharing it is safe.
+var Kind = jobs.NewKind[mail.Message]("mail.send", &jobs.KindOptions{Queue: "mail"})
 
 // Handle registers the handler of kind on worker: it sends each job's message with transport,
 // usually the service's *mail.Mailer.

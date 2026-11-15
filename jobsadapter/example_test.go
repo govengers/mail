@@ -11,9 +11,6 @@ import (
 	"github.com/govengers/mail/jobsadapter"
 )
 
-// MailKind is the service's one kind for outgoing mail.
-var MailKind = jobs.NewKind[mail.Message]("mail.send", &jobs.KindOptions{Queue: "mail"})
-
 // main registers the handler; a service method renders the mail and enqueues it in the
 // transaction of the change that causes it. The example only compiles: it needs a database.
 func ExampleHandle() {
@@ -24,7 +21,7 @@ func ExampleHandle() {
 	var transaction pgx.Tx           // the transaction that creates the user
 	ctx := context.Background()
 
-	if err := jobsadapter.Handle(worker, MailKind, mailer); err != nil {
+	if err := jobsadapter.Handle(worker, jobsadapter.Kind, mailer); err != nil {
 		panic(err)
 	}
 
@@ -33,7 +30,7 @@ func ExampleHandle() {
 		return
 	}
 	message.To = []string{"ada@example.com"}
-	if _, err := store.Enqueue(ctx, transaction, MailKind.New(*message, nil)); err != nil {
+	if _, err := store.Enqueue(ctx, transaction, jobsadapter.Kind.New(*message, nil)); err != nil {
 		return
 	}
 }

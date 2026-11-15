@@ -19,8 +19,6 @@ import (
 	"github.com/govengers/mail/mailtest"
 )
 
-var mailKind = jobs.NewKind[mail.Message]("mail.send", &jobs.KindOptions{Queue: "mail"})
-
 // store is an in-memory jobs.Store holding the claims of one queue; it records how each ended.
 // The real Store and the enqueue in the caller's transaction are govengers/jobs' own tested
 // contract; this fake keeps the adapter's tests free of a database.
@@ -32,11 +30,11 @@ type store struct {
 
 func (s *store) enqueue(t *testing.T, message *mail.Message) uuid.UUID {
 	t.Helper()
-	payload, err := mailKind.New(*message, nil).EncodePayload()
+	payload, err := jobsadapter.Kind.New(*message, nil).EncodePayload()
 	require.NoError(t, err)
 	id := uuid.New()
 	s.pending = append(s.pending, &jobs.Claim{
-		Lease: jobs.Lease{JobID: id, Token: uuid.New()}, Queue: mailKind.Queue(), Kind: mailKind.Name(),
+		Lease: jobs.Lease{JobID: id, Token: uuid.New()}, Queue: jobsadapter.Kind.Queue(), Kind: jobsadapter.Kind.Name(),
 		Payload: payload, Attempt: 1, MaximumAttempts: jobs.DefaultMaximumAttempts,
 	})
 	return id
@@ -72,7 +70,7 @@ func newWorker(t *testing.T, transport mail.Transport) (*jobs.Worker, *store) {
 	jobStore := &store{finished: map[uuid.UUID]*jobs.Finish{}}
 	worker, err := jobs.NewWorker(&jobs.WorkerOptions{Store: jobStore, Queues: map[string]jobs.QueueOptions{"mail": {}}})
 	require.NoError(t, err)
-	require.NoError(t, jobsadapter.Handle(worker, mailKind, transport))
+	require.NoError(t, jobsadapter.Handle(worker, jobsadapter.Kind, transport))
 	return worker, jobStore
 }
 
@@ -142,7 +140,7 @@ func TestTheMailersValidationMakesABrokenMessageDead(t *testing.T) {
 }
 
 func TestThePayloadIsTheMessagesJSON(t *testing.T) {
-	payload, err := mailKind.New(mail.Message{To: []string{"a@example.com"}, Subject: "Hi"}, nil).EncodePayload()
+	payload, err := jobsadapter.Kind.New(mail.Message{To: []string{"a@example.com"}, Subject: "Hi"}, nil).EncodePayload()
 	require.NoError(t, err)
 	var fields map[string]any
 	require.NoError(t, json.Unmarshal(payload, &fields))
@@ -152,5 +150,5 @@ func TestThePayloadIsTheMessagesJSON(t *testing.T) {
 func TestHandleNeedsATransport(t *testing.T) {
 	worker, err := jobs.NewWorker(&jobs.WorkerOptions{Store: &store{}})
 	require.NoError(t, err)
-	require.Error(t, jobsadapter.Handle(worker, mailKind, nil))
+	require.Error(t, jobsadapter.Handle(worker, jobsadapter.Kind, nil))
 }
