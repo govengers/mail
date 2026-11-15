@@ -4,13 +4,8 @@ package htmlscan
 
 import (
 	"html"
-	"regexp"
 	"strings"
 )
-
-// linkAttribute matches href, src and background attributes with a double-quoted, single-quoted
-// or unquoted value.
-var linkAttribute = regexp.MustCompile(`(?i)[\s"'](?:href|src|background)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))`)
 
 // Range is the half-open byte range [Start, End) of a match.
 type Range struct {
@@ -74,11 +69,78 @@ func skipRawText(lower string, position int) int {
 }
 
 // Links returns the HTML-unescaped values of every href, src and background attribute, in order.
-// Attributes inside comments count too: Outlook reads conditional comments.
+// It reads attributes of start tags only, so text, which html/template escapes, never yields a link.
+// Tags inside comments count too: Outlook reads conditional comments.
 func Links(document string) []string {
 	var links []string
-	for _, match := range linkAttribute.FindAllStringSubmatch(document, -1) {
-		links = append(links, html.UnescapeString(match[1]+match[2]+match[3]))
+	for position := 0; position < len(document); position++ {
+		if document[position] != '<' || position+1 == len(document) || !isLetter(document[position+1]) {
+			continue
+		}
+		for _, attribute := range attributes(document[position+1:]) {
+			switch strings.ToLower(attribute.name) {
+			case "href", "src", "background":
+				links = append(links, html.UnescapeString(attribute.value))
+			}
+		}
 	}
 	return links
+}
+
+type attribute struct {
+	name, value string
+}
+
+// attributes reads the attributes of the start tag that rest begins with, after the "<", up to
+// its ">".
+func attributes(rest string) []attribute {
+	position := strings.IndexAny(rest, " \t\n\r\f/>")
+	if position < 0 {
+		return nil
+	}
+	var found []attribute
+	for position < len(rest) {
+		position = skip(rest, position, " \t\n\r\f/")
+		if position >= len(rest) || rest[position] == '>' {
+			break
+		}
+		nameEnd := position + strings.IndexAny(rest[position:]+">", " \t\n\r\f/=>")
+		name := rest[position:nameEnd]
+		position = skip(rest, nameEnd, " \t\n\r\f")
+		if position >= len(rest) || rest[position] != '=' {
+			found = append(found, attribute{name: name})
+			continue
+		}
+		var value string
+		value, position = attributeValue(rest, skip(rest, position+1, " \t\n\r\f"))
+		found = append(found, attribute{name: name, value: value})
+	}
+	return found
+}
+
+// attributeValue reads a quoted or unquoted value at position and returns it and the position after it.
+func attributeValue(rest string, position int) (string, int) {
+	if position >= len(rest) {
+		return "", position
+	}
+	if quote := rest[position]; quote == '"' || quote == '\'' {
+		end := strings.IndexByte(rest[position+1:], quote)
+		if end < 0 {
+			return rest[position+1:], len(rest)
+		}
+		return rest[position+1 : position+1+end], position + end + 2
+	}
+	end := position + strings.IndexAny(rest[position:]+">", " \t\n\r\f>")
+	return rest[position:end], end
+}
+
+func skip(rest string, position int, characters string) int {
+	for position < len(rest) && strings.IndexByte(characters, rest[position]) >= 0 {
+		position++
+	}
+	return position
+}
+
+func isLetter(character byte) bool {
+	return ('a' <= character && character <= 'z') || ('A' <= character && character <= 'Z')
 }
