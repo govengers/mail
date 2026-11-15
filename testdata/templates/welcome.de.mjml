@@ -1,0 +1,10 @@
+<mj-head>
+  <mj-preview>Bestätige deine Adresse</mj-preview>
+</mj-head>
+<mj-section background-color="#ffffff">
+  <mj-column>
+    <mj-text>Hallo {{.Name}},</mj-text>
+    <mj-text>bitte bestätige deine Adresse.</mj-text>
+    <mj-button href="{{.ConfirmURL}}">Bestätigen</mj-button>
+  </mj-column>
+</mj-section>

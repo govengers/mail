@@ -1,0 +1,19 @@
+# govengers/mail
+
+> Transactional mail for govengers services: one Message, a Mailer that validates and reports to an Observer, SMTP (STARTTLS/TLS/none, AUTH PLAIN) and Resend (idempotency key) transports, a development logmailer, MJML templates compiled at build time by cmd/mailgen and rendered per locale at runtime with html/template and a text/template plain-text part, Prometheus and OpenTelemetry adapters, a govengers/jobs adapter, and mailtest fakes for tests.
+
+- Module: `github.com/govengers/mail`, Go 1.26, Apache 2.0. Nested modules: `github.com/govengers/mail/jobsadapter` (govengers/jobs), `github.com/govengers/mail/cmd/mailgen` (gomjml).
+- Packages: `mail` (Message, Mailer, Transport, Observer, Templates, ErrPermanent, ErrInvalidMessage, ErrTemplateNotFound, ErrUnsafeLink), `smtp`, `resend`, `logmailer`, `mailtest` (Recorder, NewSMTPServer, NewResendServer, Parse, Links, TLSConfigs), `prometheusadapter`, `oteladapter`, `jobsadapter`.
+- Standards: govengers/standards, `library` profile.
+- Rules of thumb: render where the data is, send through a job when the mail must follow a commit; errors matching mail.ErrPermanent never succeed on retry; SMTP is at least once, Resend with an idempotency key is once within 24 hours; commit mailgen's HTML and run `mailgen -check` in lint.
+
+## Docs
+
+- [README.md](README.md): overview, install, sending, templates, jobs, tests.
+- [docs/wiki/Home.md](docs/wiki/Home.md): which piece for which need, wiring in main.
+- [docs/wiki/Templates.md](docs/wiki/Templates.md): files, layouts, locales, mailgen and the drift check, rendering rules.
+- [docs/wiki/Transports.md](docs/wiki/Transports.md): smtp, resend, logmailer, error classification, tracing and metrics.
+- [docs/wiki/Jobs.md](docs/wiki/Jobs.md): sending from a govengers/jobs job in the caller's transaction.
+- [docs/wiki/Testing.md](docs/wiki/Testing.md): Recorder, fake SMTP and Resend servers, Parse, Links.
+- [docs/wiki/Gotchas.md](docs/wiki/Gotchas.md): the rules that are easy to get wrong.
+- [docs/design.md](docs/design.md): the binding design, decisions M1 onwards.

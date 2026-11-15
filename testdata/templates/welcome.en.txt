@@ -1,0 +1,6 @@
+{{define "subject"}}Welcome to {{.Product}}, {{.Name}}{{end -}}
+Hello {{.Name}},
+
+please confirm your address: {{.ConfirmURL}}
+{{range .Tasks}}
+- {{.}}{{end}}

@@ -1,0 +1,4 @@
+{{define "subject"}}Willkommen bei {{.Product}}, {{.Name}}{{end -}}
+Hallo {{.Name}},
+
+bitte bestätige deine Adresse: {{.ConfirmURL}}
