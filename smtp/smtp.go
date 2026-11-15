@@ -42,7 +42,7 @@ type Options struct {
 	Security Security // empty means SecurityStartTLS
 	// Username enables AUTH PLAIN, which net/smtp only sends over TLS or to localhost.
 	Username string
-	Password string //nolint:gosec // G117: the field carries the configured credential by design
+	Password string
 	// TLSConfig configures TLS; nil verifies the server's certificate for Host with the system roots.
 	TLSConfig *tls.Config
 	LocalName string        // the EHLO name; empty means "localhost"

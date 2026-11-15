@@ -2,6 +2,7 @@ package mailtest
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
@@ -25,7 +26,7 @@ type SMTPServerOptions struct {
 	ImplicitTLS bool
 	// Username and Password, when set, make AUTH PLAIN with them required before MAIL.
 	Username string
-	Password string //nolint:gosec // G117: the fake's expected credential
+	Password string
 	// Reply, when set, sees every command line and "." after a message's data, and returns a reply
 	// line ("550 5.1.1 no such user") to send instead of handling the command, or "" to handle it.
 	Reply func(command string) string
@@ -59,7 +60,7 @@ func NewSMTPServer(tb testing.TB, options *SMTPServerOptions) *SMTPServer {
 	if options != nil {
 		server.options = *options
 	}
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	listener, err := (&net.ListenConfig{}).Listen(tb.Context(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		tb.Fatalf("mailtest: listen: %v", err)
 	}
@@ -228,7 +229,7 @@ func (s *smtpSession) startTLS() error {
 		return err
 	}
 	secured := tls.Server(s.conn, s.server.options.TLSConfig)
-	if err := secured.Handshake(); err != nil {
+	if err := secured.HandshakeContext(context.Background()); err != nil { // closing the server ends it
 		return err
 	}
 	s.conn, s.text, s.tls, s.envelope = secured, textproto.NewConn(secured), true, nil

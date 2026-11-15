@@ -129,20 +129,22 @@ func TestNewValidatesItsOptions(t *testing.T) {
 
 func TestValidate(t *testing.T) {
 	for name, change := range map[string]func(message *mail.Message){
-		"bad from":              func(message *mail.Message) { message.From = "nope" },
-		"no recipient":          func(message *mail.Message) { message.To = nil },
-		"bad recipient":         func(message *mail.Message) { message.To = []string{"a@example.com", "b"} },
-		"bad reply-to":          func(message *mail.Message) { message.ReplyTo = "x" },
-		"empty subject":         func(message *mail.Message) { message.Subject = "" },
-		"subject line break":    func(message *mail.Message) { message.Subject = "a\r\nBcc: x@example.com" },
-		"no body":               func(message *mail.Message) { message.Text = "" },
-		"long idempotency key":  func(message *mail.Message) { message.IdempotencyKey = strings.Repeat("k", 257) },
-		"reserved header":       func(message *mail.Message) { message.Headers = map[string]string{"bcc": "x@example.com"} },
-		"header name":           func(message *mail.Message) { message.Headers = map[string]string{"X Bad": "v"} },
-		"header value":          func(message *mail.Message) { message.Headers = map[string]string{"X-Tag": "a\nb"} },
-		"attachment path":       func(message *mail.Message) { message.Attachments = []mail.Attachment{{Filename: "../a.txt"}} },
-		"attachment no name":    func(message *mail.Message) { message.Attachments = []mail.Attachment{{}} },
-		"attachment media type": func(message *mail.Message) { message.Attachments = []mail.Attachment{{Filename: "a", ContentType: "text/"}} },
+		"bad from":             func(message *mail.Message) { message.From = "nope" },
+		"no recipient":         func(message *mail.Message) { message.To = nil },
+		"bad recipient":        func(message *mail.Message) { message.To = []string{"a@example.com", "b"} },
+		"bad reply-to":         func(message *mail.Message) { message.ReplyTo = "x" },
+		"empty subject":        func(message *mail.Message) { message.Subject = "" },
+		"subject line break":   func(message *mail.Message) { message.Subject = "a\r\nBcc: x@example.com" },
+		"no body":              func(message *mail.Message) { message.Text = "" },
+		"long idempotency key": func(message *mail.Message) { message.IdempotencyKey = strings.Repeat("k", 257) },
+		"reserved header":      func(message *mail.Message) { message.Headers = map[string]string{"bcc": "x@example.com"} },
+		"header name":          func(message *mail.Message) { message.Headers = map[string]string{"X Bad": "v"} },
+		"header value":         func(message *mail.Message) { message.Headers = map[string]string{"X-Tag": "a\nb"} },
+		"attachment path":      func(message *mail.Message) { message.Attachments = []mail.Attachment{{Filename: "../a.txt"}} },
+		"attachment no name":   func(message *mail.Message) { message.Attachments = []mail.Attachment{{}} },
+		"attachment media type": func(message *mail.Message) {
+			message.Attachments = []mail.Attachment{{Filename: "a", ContentType: "text/"}}
+		},
 	} {
 		message := validMessage()
 		message.From = "noreply@example.com"

@@ -4,8 +4,10 @@ import (
 	"encoding/base64"
 	"errors"
 	"net"
+	"net/http"
 	"net/textproto"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -13,6 +15,7 @@ import (
 
 	"github.com/govengers/mail"
 	"github.com/govengers/mail/mailtest"
+	"github.com/govengers/mail/smtp"
 )
 
 func TestMain(m *testing.M) {
@@ -106,4 +109,53 @@ func TestTheFakeSMTPServerSpeaksTheProtocol(t *testing.T) {
 	messages := server.Messages()
 	require.Len(t, messages, 1)
 	require.Equal(t, ".dot\n", messages[0].Message.Text)
+}
+
+func TestTheFakeSMTPServerUpgradesToTLSAndParsesMultipartMail(t *testing.T) {
+	serverTLS, clientTLS := mailtest.TLSConfigs(t)
+	server := mailtest.NewSMTPServer(t, &mailtest.SMTPServerOptions{TLSConfig: serverTLS})
+	transport, err := smtp.New(&smtp.Options{Host: server.Host(), Port: server.Port(), TLSConfig: clientTLS})
+	require.NoError(t, err)
+	message := &mail.Message{
+		From: "a@example.com", To: []string{"b@example.com"}, Subject: "Report", Text: "see attached\n", HTML: "<p>see attached</p>\n",
+		Attachments: []mail.Attachment{{Filename: "r.csv", ContentType: "text/csv", Content: []byte("a,b\n1,2\n")}},
+	}
+
+	require.NoError(t, transport.Send(t.Context(), message))
+
+	parsed := server.Messages()[0].Message
+	require.Equal(t, message.Text, parsed.Text)
+	require.Equal(t, message.HTML, parsed.HTML)
+	require.Equal(t, message.Attachments, parsed.Attachments)
+}
+
+func TestTheFakeResendAPIRejectsWhatResendWould(t *testing.T) {
+	server := mailtest.NewResendServer(t, &mailtest.ResendServerOptions{Reply: func(request *mailtest.ResendRequest) (int, string) {
+		if request.Message.Subject == "throttled" {
+			return http.StatusTooManyRequests, "rate_limit_exceeded"
+		}
+		return 0, ""
+	}})
+	post := func(method, path, body string) int {
+		t.Helper()
+		request, err := http.NewRequestWithContext(t.Context(), method, server.URL()+path, strings.NewReader(body))
+		require.NoError(t, err)
+		response, err := http.DefaultClient.Do(request)
+		require.NoError(t, err)
+		require.NoError(t, response.Body.Close())
+		return response.StatusCode
+	}
+
+	require.Equal(t, http.StatusNotFound, post(http.MethodGet, "/emails", ""))
+	require.Equal(t, http.StatusNotFound, post(http.MethodPost, "/domains", ""))
+	require.Equal(t, http.StatusUnprocessableEntity, post(http.MethodPost, "/emails", "not json"))
+	require.Equal(t, http.StatusTooManyRequests, post(http.MethodPost, "/emails", `{"subject":"throttled"}`))
+	require.Equal(t, http.StatusOK, post(http.MethodPost, "/emails", `{"subject":"fine","reply_to":["r@example.com"],"attachments":[{"filename":"a","content":"aGk="}]}`))
+
+	require.Len(t, server.Requests(), 2)
+	delivered := server.Messages()
+	require.Len(t, delivered, 1)
+	require.Equal(t, "r@example.com", delivered[0].ReplyTo)
+	require.Equal(t, []byte("hi"), delivered[0].Attachments[0].Content)
+	http.DefaultClient.CloseIdleConnections()
 }

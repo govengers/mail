@@ -29,8 +29,8 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
-	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -71,19 +71,24 @@ func run(arguments []string, output io.Writer) error {
 	if err := flags.Parse(arguments); err != nil {
 		return err
 	}
-	compiled, err := compileDirectory(*directory)
+	root, err := os.OpenRoot(*directory)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = root.Close() }()
+	compiled, err := compileDirectory(root)
 	if err != nil {
 		return err
 	}
 	if *check {
-		return checkDirectory(*directory, compiled, output)
+		return checkDirectory(root, compiled, output)
 	}
-	return writeDirectory(*directory, compiled, output)
+	return writeDirectory(root, compiled, output)
 }
 
-// compileDirectory compiles every source of directory and returns the HTML by file name.
-func compileDirectory(directory string) (map[string][]byte, error) {
-	entries, err := os.ReadDir(directory)
+// compileDirectory compiles every source of the directory and returns the HTML by file name.
+func compileDirectory(root *os.Root) (map[string][]byte, error) {
+	entries, err := fs.ReadDir(root.FS(), ".")
 	if err != nil {
 		return nil, err
 	}
@@ -93,7 +98,7 @@ func compileDirectory(directory string) (map[string][]byte, error) {
 		switch name := entry.Name(); {
 		case entry.IsDir():
 		case layoutFile.MatchString(name):
-			content, err := os.ReadFile(filepath.Join(directory, name))
+			content, err := root.ReadFile(name)
 			if err != nil {
 				return nil, err
 			}
@@ -104,7 +109,7 @@ func compileDirectory(directory string) (map[string][]byte, error) {
 	}
 	compiled := map[string][]byte{}
 	for _, name := range sources {
-		html, err := compileSource(directory, name, layouts)
+		html, err := compileSource(root, name, layouts)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", name, err)
 		}
@@ -113,8 +118,8 @@ func compileDirectory(directory string) (map[string][]byte, error) {
 	return compiled, nil
 }
 
-func compileSource(directory, name string, layouts map[string]string) ([]byte, error) {
-	source, err := os.ReadFile(filepath.Join(directory, name))
+func compileSource(root *os.Root, name string, layouts map[string]string) ([]byte, error) {
+	source, err := root.ReadFile(name)
 	if err != nil {
 		return nil, err
 	}
@@ -171,9 +176,9 @@ func normalizeLocale(locale string) string {
 	return strings.ToLower(strings.ReplaceAll(locale, "_", "-"))
 }
 
-func writeDirectory(directory string, compiled map[string][]byte, output io.Writer) error {
+func writeDirectory(root *os.Root, compiled map[string][]byte, output io.Writer) error {
 	for _, name := range sortedKeys(compiled) {
-		if err := os.WriteFile(filepath.Join(directory, name), compiled[name], 0o644); err != nil { //nolint:gosec // G306: templates are committed source files
+		if err := root.WriteFile(name, compiled[name], 0o644); err != nil {
 			return err
 		}
 		fmt.Fprintln(output, "wrote", name)
@@ -181,10 +186,10 @@ func writeDirectory(directory string, compiled map[string][]byte, output io.Writ
 	return nil
 }
 
-func checkDirectory(directory string, compiled map[string][]byte, output io.Writer) error {
+func checkDirectory(root *os.Root, compiled map[string][]byte, output io.Writer) error {
 	var problems []string
 	for _, name := range sortedKeys(compiled) {
-		committed, err := os.ReadFile(filepath.Join(directory, name))
+		committed, err := root.ReadFile(name)
 		switch {
 		case errors.Is(err, os.ErrNotExist):
 			problems = append(problems, name+": missing")
@@ -194,7 +199,7 @@ func checkDirectory(directory string, compiled map[string][]byte, output io.Writ
 			problems = append(problems, name+": differs from its source")
 		}
 	}
-	entries, err := os.ReadDir(directory)
+	entries, err := fs.ReadDir(root.FS(), ".")
 	if err != nil {
 		return err
 	}

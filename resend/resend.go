@@ -124,10 +124,10 @@ func failure(response *http.Response) error {
 }
 
 func permanent(status int, name string) bool {
-	switch {
-	case status == http.StatusRequestTimeout, status == http.StatusTooManyRequests:
+	switch status {
+	case http.StatusRequestTimeout, http.StatusTooManyRequests:
 		return false
-	case status == http.StatusConflict:
+	case http.StatusConflict:
 		return name != resendapi.ErrorConcurrentIdempotentRequests
 	default:
 		return status >= 400 && status < 500
