@@ -71,7 +71,9 @@ func TestSendClassifiesResponses(t *testing.T) {
 		permanent bool
 	}{
 		"validation":        {status: http.StatusUnprocessableEntity, errorName: "validation_error", permanent: true},
-		"forbidden":         {status: http.StatusForbidden, errorName: "invalid_api_key", permanent: true},
+		"forbidden":         {status: http.StatusForbidden, errorName: "invalid_api_key"},
+		"missing key":       {status: http.StatusUnauthorized, errorName: "missing_api_key"},
+		"wrong base URL":    {status: http.StatusNotFound, errorName: "not_found"},
 		"rate limit":        {status: http.StatusTooManyRequests, errorName: "rate_limit_exceeded"},
 		"timeout":           {status: http.StatusRequestTimeout, errorName: "timeout"},
 		"concurrent key":    {status: http.StatusConflict, errorName: "concurrent_idempotent_requests"},
@@ -114,7 +116,7 @@ func TestSendRejectsAWrongAPIKey(t *testing.T) {
 
 	err := transport.Send(t.Context(), &mail.Message{From: "a@example.com", To: []string{"b@example.com"}, Subject: "Hi", Text: "x"})
 
-	require.ErrorIs(t, err, mail.ErrPermanent)
+	require.NotErrorIs(t, err, mail.ErrPermanent, "a wrong key must not kill the queued mails")
 	require.Empty(t, server.Requests())
 }
 

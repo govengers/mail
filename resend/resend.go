@@ -60,9 +60,9 @@ func New(options *Options) (*Transport, error) {
 	return &Transport{apiKey: options.APIKey, endpoint: strings.TrimSuffix(baseURL, "/") + "/emails", client: client}, nil
 }
 
-// Send posts the message. A 4xx response matches mail.ErrPermanent, except 408, 429 and a 409 for
-// a request with the same key still in flight, which may succeed later like a 5xx or a network
-// error.
+// Send posts the message. A 4xx response matches mail.ErrPermanent, except 401, 403 and 404 (the
+// transport's configuration), 408, 429 and a 409 for a request with the same key still in flight,
+// which may succeed later like a 5xx or a network error.
 func (t *Transport) Send(ctx context.Context, message *mail.Message) error {
 	body, err := json.Marshal(email(message))
 	if err != nil {
@@ -123,9 +123,12 @@ func failure(response *http.Response) error {
 	return err
 }
 
+// permanent reports whether the response rejects the message itself. 401, 403 and 404 say the
+// transport is misconfigured (API key, unverified domain, base URL); the message goes out once
+// that is fixed, so they are temporary like 408 and 429.
 func permanent(status int, name string) bool {
 	switch status {
-	case http.StatusRequestTimeout, http.StatusTooManyRequests:
+	case http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound, http.StatusRequestTimeout, http.StatusTooManyRequests:
 		return false
 	case http.StatusConflict:
 		return name != resendapi.ErrorConcurrentIdempotentRequests

@@ -3,7 +3,9 @@
 //
 // Delivery is at least once: when the connection breaks after the server accepted the message
 // but before Send saw the reply, Send fails and a retry delivers the message again. SMTP has no
-// idempotency key; a retry that must not duplicate needs the resend transport.
+// idempotency key; the Message-ID is derived from Message.IdempotencyKey, so the copy carries the
+// same Message-ID and receivers that deduplicate on it drop it. A retry that must not duplicate
+// needs the resend transport.
 package smtp
 
 import (
@@ -87,7 +89,7 @@ func New(options *Options) (*Transport, error) {
 		address:   net.JoinHostPort(options.Host, strconv.Itoa(port)),
 		host:      options.Host,
 		security:  security,
-		localName: options.LocalName,
+		localName: orDefault(options.LocalName, "localhost"),
 		timeout:   orDefault(options.Timeout, DefaultTimeout),
 		tlsConfig: &tls.Config{ServerName: options.Host, MinVersion: tls.VersionTLS12},
 	}
@@ -119,8 +121,11 @@ func orDefault[T comparable](value, fallback T) T {
 	return value
 }
 
-// Send delivers the message on a new connection. A 5xx reply of the server matches
-// mail.ErrPermanent; a 4xx reply, a network error and a cancelled context do not.
+// Send delivers the message on a new connection. A 5xx reply to MAIL, RCPT or DATA (a refused
+// sender, recipient or content) matches mail.ErrPermanent. Every failure before that is temporary,
+// 5xx included: a refused greeting, STARTTLS or AUTH (a rotated password) is the transport's
+// configuration, and the message goes out once it is fixed. 4xx replies, network errors and a
+// cancelled context are temporary too.
 func (t *Transport) Send(ctx context.Context, message *mail.Message) error {
 	// The Mailer validated already; a transport used on its own (a jobs handler) must not put an
 	// unchecked address into the envelope either.
@@ -135,12 +140,12 @@ func (t *Transport) Send(ctx context.Context, message *mail.Message) error {
 	defer cancel()
 	client, stop, err := t.connect(ctx)
 	if err != nil {
-		return t.failure(ctx, "connect", err)
+		return t.failure(ctx, "connect", err, false)
 	}
 	defer func() { _ = client.Close() }()
 	defer stop()
 	if err := t.deliver(client, message, data); err != nil {
-		return t.failure(ctx, "send", err)
+		return t.failure(ctx, "send", err, true)
 	}
 	_ = client.Quit() // the server accepted the message; a failed QUIT changes nothing
 	return nil
@@ -178,10 +183,10 @@ func (t *Transport) connect(ctx context.Context) (client *netsmtp.Client, stop f
 }
 
 func (t *Transport) handshake(client *netsmtp.Client) error {
-	if t.localName != "" {
-		if err := client.Hello(t.localName); err != nil {
-			return err
-		}
+	// net/smtp greets lazily, at MAIL without STARTTLS and AUTH; greet here so a refused greeting
+	// is a connection failure, not a refused message.
+	if err := client.Hello(t.localName); err != nil {
+		return err
 	}
 	if t.security == SecurityStartTLS {
 		if ok, _ := client.Extension("STARTTLS"); !ok {
@@ -225,14 +230,15 @@ func (t *Transport) deliver(client *netsmtp.Client, message *mail.Message, data 
 	return writer.Close()
 }
 
-// failure classifies err: a 5xx reply is permanent, a cancelled or expired context is returned
-// as its cause so callers can match context.Canceled and context.DeadlineExceeded.
-func (t *Transport) failure(ctx context.Context, step string, err error) error {
+// failure classifies err: a 5xx reply is permanent when the step's replies are about the message,
+// a cancelled or expired context is returned as its cause so callers can match context.Canceled
+// and context.DeadlineExceeded.
+func (t *Transport) failure(ctx context.Context, step string, err error, messageStep bool) error {
 	if ctxErr := context.Cause(ctx); ctxErr != nil {
 		return fmt.Errorf("smtp %s %s: %w (%v)", step, t.address, ctxErr, err) //nolint:errorlint // LIB-010: only the context error is API
 	}
 	var reply *textproto.Error
-	if errors.As(err, &reply) && reply.Code >= 500 {
+	if messageStep && errors.As(err, &reply) && reply.Code >= 500 {
 		return fmt.Errorf("%w: smtp %s %s: %v", mail.ErrPermanent, step, t.address, err) //nolint:errorlint // LIB-010
 	}
 	return fmt.Errorf("smtp %s %s: %v", step, t.address, err) //nolint:errorlint // LIB-010

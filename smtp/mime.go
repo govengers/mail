@@ -3,6 +3,7 @@ package smtp
 import (
 	"bytes"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"io"
@@ -45,7 +46,7 @@ func compose(message *mail.Message, now time.Time) ([]byte, error) {
 	}
 	writeHeader(&buffer, "Subject", mime.QEncoding.Encode("utf-8", message.Subject))
 	writeHeader(&buffer, "Date", now.Format(time.RFC1123Z))
-	writeHeader(&buffer, "Message-ID", messageID(from.Address))
+	writeHeader(&buffer, "Message-ID", messageID(from.Address, message.IdempotencyKey))
 	writeHeader(&buffer, "MIME-Version", "1.0")
 	for _, name := range sortedNames(message.Headers) {
 		writeHeader(&buffer, textproto.CanonicalMIMEHeaderKey(name), mime.QEncoding.Encode("utf-8", message.Headers[name]))
@@ -68,11 +69,20 @@ func formatAddresses(addresses []string) (string, error) {
 	return strings.Join(formatted, ", "), nil
 }
 
-// messageID returns a unique Message-ID in the sender's domain.
-func messageID(from string) string {
-	random := make([]byte, 16)
-	_, _ = rand.Read(random) // crypto/rand.Read never fails (Go 1.24)
-	return "<" + hex.EncodeToString(random) + "@" + from[strings.LastIndexByte(from, '@')+1:] + ">"
+// messageID returns a Message-ID in the sender's domain: derived from the idempotency key, so
+// every retry of one job carries the same ID and receivers that deduplicate on it drop the second
+// copy, or random without a key.
+func messageID(from, idempotencyKey string) string {
+	var local string
+	if idempotencyKey != "" {
+		sum := sha256.Sum256([]byte(idempotencyKey))
+		local = hex.EncodeToString(sum[:])
+	} else {
+		random := make([]byte, 16)
+		_, _ = rand.Read(random) // crypto/rand.Read never fails (Go 1.24)
+		local = hex.EncodeToString(random)
+	}
+	return "<" + local + "@" + from[strings.LastIndexByte(from, '@')+1:] + ">"
 }
 
 // writeHeader writes one header field, folded at spaces so no line exceeds maximumLineLength

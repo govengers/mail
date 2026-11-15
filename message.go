@@ -13,8 +13,10 @@ const MaximumIdempotencyKeyLength = 256
 
 var (
 	// ErrPermanent marks a failure that sending the same message again cannot fix: an invalid
-	// message, a recipient the server rejected, a refused API key. Transports wrap it; match it with
-	// errors.Is to stop retrying. Every other error may be temporary.
+	// message, a sender, recipient or content the server rejected. A misconfigured transport (a
+	// refused password or API key) is not permanent: the message goes out once it is fixed.
+	// Transports wrap it; match it with errors.Is to stop retrying. Every other error may be
+	// temporary.
 	ErrPermanent = errors.New("mail: permanent failure")
 	// ErrInvalidMessage is returned for a message that fails Validate. It always comes with
 	// ErrPermanent.
@@ -36,7 +38,8 @@ type Message struct {
 	Headers     map[string]string `json:"headers,omitempty"`
 	Attachments []Attachment      `json:"attachments,omitempty"`
 	// IdempotencyKey makes a retried send deliver once on transports that support it (resend, for
-	// 24 hours); the others ignore it. jobsadapter sets it to the job's ID.
+	// 24 hours). smtp derives the Message-ID from it, so a duplicate is recognisable; logmailer and
+	// mailtest ignore it. jobsadapter sets it to the job's ID.
 	IdempotencyKey string `json:"idempotency_key,omitempty"`
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -131,6 +132,7 @@ func TestSendClassifiesReplies(t *testing.T) {
 		"greylisted":        {command: "RCPT TO:<b@example.com>", reply: "451 4.7.1 try again later"},
 		"rejected content":  {command: ".", reply: "554 5.7.1 spam", permanent: true},
 		"mailbox busy":      {command: "MAIL FROM:<a@example.com>", reply: "421 4.3.2 busy"},
+		"refused sender":    {command: "MAIL FROM:<a@example.com>", reply: "553 5.7.1 sender not allowed", permanent: true},
 	} {
 		server := mailtest.NewSMTPServer(t, &mailtest.SMTPServerOptions{Reply: func(command string) string {
 			if strings.HasPrefix(command, testCase.command) {
@@ -148,6 +150,25 @@ func TestSendClassifiesReplies(t *testing.T) {
 	}
 }
 
+func TestMessageIDFollowsTheIdempotencyKey(t *testing.T) {
+	server := mailtest.NewSMTPServer(t, nil)
+	transport := newTransport(t, &smtp.Options{Host: server.Host(), Port: server.Port(), Security: smtp.SecurityNone})
+	for _, key := range []string{"job-1", "job-1", "", ""} {
+		message := &mail.Message{From: "a@example.com", To: []string{"b@example.com"}, Subject: "Hi", Text: "x", IdempotencyKey: key}
+		require.NoError(t, transport.Send(t.Context(), message))
+	}
+
+	var ids []string
+	for _, received := range server.Messages() {
+		id := regexp.MustCompile(`\nMessage-ID: (<[0-9a-f]+@example\.com>)\r?\n`).FindStringSubmatch(string(received.Data))
+		require.NotNil(t, id)
+		ids = append(ids, id[1])
+	}
+	require.Equal(t, ids[0], ids[1], "a retry of one job keeps its Message-ID")
+	require.NotEqual(t, ids[0], ids[2])
+	require.NotEqual(t, ids[2], ids[3], "without a key every send gets a new one")
+}
+
 func TestSendRejectsEnvelopeParametersInAQuotedAddress(t *testing.T) {
 	server := mailtest.NewSMTPServer(t, nil)
 	transport := newTransport(t, &smtp.Options{Host: server.Host(), Port: server.Port(), Security: smtp.SecurityNone})
@@ -160,6 +181,21 @@ func TestSendRejectsEnvelopeParametersInAQuotedAddress(t *testing.T) {
 	require.Empty(t, server.Messages())
 }
 
+func TestARefusedGreetingIsTemporary(t *testing.T) {
+	server := mailtest.NewSMTPServer(t, &mailtest.SMTPServerOptions{Reply: func(command string) string {
+		if strings.HasPrefix(command, "EHLO") || strings.HasPrefix(command, "HELO") {
+			return "554 5.7.1 client host not allowed"
+		}
+		return ""
+	}})
+	transport := newTransport(t, &smtp.Options{Host: server.Host(), Port: server.Port(), Security: smtp.SecurityNone})
+
+	err := transport.Send(t.Context(), &mail.Message{From: "a@example.com", To: []string{"b@example.com"}, Subject: "Hi", Text: "x"})
+
+	require.ErrorContains(t, err, "554")
+	require.NotErrorIs(t, err, mail.ErrPermanent, "the server refuses this client, not the message")
+}
+
 func TestSendFailsOnWrongCredentials(t *testing.T) {
 	serverTLS, clientTLS := mailtest.TLSConfigs(t)
 	server := mailtest.NewSMTPServer(t, &mailtest.SMTPServerOptions{TLSConfig: serverTLS, Username: "user", Password: "secret"})
@@ -167,7 +203,8 @@ func TestSendFailsOnWrongCredentials(t *testing.T) {
 
 	err := transport.Send(t.Context(), &mail.Message{From: "a@example.com", To: []string{"b@example.com"}, Subject: "Hi", Text: "x"})
 
-	require.ErrorIs(t, err, mail.ErrPermanent)
+	require.ErrorContains(t, err, "535")
+	require.NotErrorIs(t, err, mail.ErrPermanent, "a rotated password must not kill the queued mails")
 }
 
 func TestSendReturnsTheContextsErrorBeforeConnecting(t *testing.T) {

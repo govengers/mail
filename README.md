@@ -55,7 +55,7 @@ if errors.Is(err, mail.ErrPermanent) {
 }
 ```
 
-`Mailer.Send` copies the message, fills in the default `From`, validates it (addresses, one-line subject, no header injection, safe attachment names) and hands it to the transport. Errors that match `mail.ErrPermanent` cannot succeed on a retry: an invalid message (`mail.ErrInvalidMessage`), an SMTP 5xx reply, a Resend 4xx other than 408, 429 and a concurrent-key 409. Everything else may be temporary.
+`Mailer.Send` copies the message, fills in the default `From`, validates it (addresses, one-line subject, no header injection, safe attachment names) and hands it to the transport. Errors that match `mail.ErrPermanent` cannot succeed on a retry: an invalid message (`mail.ErrInvalidMessage`), an SMTP 5xx reply to MAIL, RCPT or DATA, a Resend 4xx other than 401, 403, 404, 408, 429 and a concurrent-key 409. A misconfigured transport (refused greeting, STARTTLS or AUTH, a wrong API key) is temporary, so queued mails go out once it is fixed. Everything else may be temporary.
 
 ## Templates
 
@@ -92,13 +92,11 @@ HTML renders with `html/template` (data is escaped; Outlook's conditional commen
 ## Mail from a job
 
 ```go
-var MailKind = jobs.NewKind[mail.Message]("mail.send", &jobs.KindOptions{Queue: "mail"})
-
-err := jobsadapter.Handle(worker, MailKind, mailer)                     // main
-_, err = store.Enqueue(ctx, transaction, MailKind.New(*message, nil))   // in the user's transaction
+err := jobsadapter.Handle(worker, jobsadapter.Kind, mailer)                     // main
+_, err = store.Enqueue(ctx, transaction, jobsadapter.Kind.New(*message, nil))   // in the user's transaction
 ```
 
-The job's ID becomes the message's `IdempotencyKey`, so the Resend transport delivers once across retries. SMTP has no idempotency: a retry after a lost reply delivers twice (at least once). A permanent failure ends the job as dead at once.
+`jobsadapter.Kind` is `mail.send` on the queue `mail`; declare your own `jobs.NewKind[mail.Message]` for another queue or backoff. The job's ID becomes the message's `IdempotencyKey`, so the Resend transport delivers once across retries. SMTP has no idempotency: a retry after a lost reply delivers twice (at least once), with the same Message-ID. A permanent failure ends the job as dead at once.
 
 ## Tests
 

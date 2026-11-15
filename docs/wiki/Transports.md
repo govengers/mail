@@ -17,7 +17,8 @@ transport, err := smtp.New(&smtp.Options{
 - STARTTLS must be offered by the server; there is no silent downgrade.
 - AUTH PLAIN without TLS is refused at `New` unless the host is localhost.
 - One connection per message. The context's deadline and cancellation bound every network wait.
-- A 5xx reply matches `mail.ErrPermanent`; 4xx, network errors and timeouts do not.
+- A 5xx reply to MAIL, RCPT or DATA matches `mail.ErrPermanent`. A 5xx to the greeting, STARTTLS or AUTH (a rotated password, a relay that does not know this host) is temporary: it is the transport's configuration, and a queued mail goes out once that is fixed. 4xx, network errors and timeouts are temporary.
+- The Message-ID is derived from `IdempotencyKey` when it is set, so every retry of one job carries the same Message-ID and receivers that deduplicate on it drop the copy. Delivery is still at least once.
 - At least once: a reply lost after the server accepted the data looks like a failure, and a retry sends the mail again.
 
 ## resend
@@ -27,7 +28,7 @@ transport, err := resend.New(&resend.Options{APIKey: key}) // BaseURL for tests,
 ```
 
 - `Message.IdempotencyKey` is sent as `Idempotency-Key`: Resend delivers a key once for 24 hours and answers a reused key with another payload with 409, which is permanent.
-- 4xx is permanent except 408, 429 and 409 `concurrent_idempotent_requests`; 5xx and network errors are temporary. The transport never retries or sleeps itself.
+- 4xx is permanent except 401, 403 and 404 (API key, unverified domain, base URL: the transport's configuration), 408, 429 and 409 `concurrent_idempotent_requests`; 5xx and network errors are temporary. The transport never retries or sleeps itself.
 
 ## logmailer
 
