@@ -109,14 +109,16 @@ func (m *Message) validateAddresses() error {
 // validateAddress accepts an RFC 5322 address whose addr-spec can go into an SMTP envelope as it
 // is. net/mail unquotes a quoted local part, and net/smtp writes MAIL FROM:<%s> and RCPT TO:<%s>
 // unescaped, so a local part with a space or a '>' would end the path and append parameters
-// ("a@evil.example> NOTIFY=NEVER"@corp.example). Quoted local parts that need their quotes and
-// domain literals are therefore rejected.
+// ("a@evil.example> NOTIFY=NEVER"@corp.example), and one with '@' or a misplaced dot would reach
+// another mailbox. Quoted local parts that need their quotes and domain literals are therefore
+// rejected: net/mail's String quotes exactly the local parts that need it, so a round trip that
+// changes the addr-spec finds them.
 func validateAddress(value string) error {
 	address, err := netmail.ParseAddress(value)
 	if err != nil {
 		return errors.New(err.Error()) // LIB-010: net/mail's parse errors are not part of the API
 	}
-	if strings.ContainsFunc(address.Address, func(r rune) bool { return r <= ' ' || r == 0x7f || strings.ContainsRune(`<>"\()[],;:`, r) }) {
+	if (&netmail.Address{Address: address.Address}).String() != "<"+address.Address+">" || strings.Contains(address.Address, "[") {
 		return errors.New("a quoted local part or a domain literal is not supported")
 	}
 	return nil

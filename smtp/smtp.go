@@ -122,9 +122,9 @@ func orDefault[T comparable](value, fallback T) T {
 }
 
 // Send delivers the message on a new connection. A 5xx reply to MAIL, RCPT or DATA (a refused
-// sender, recipient or content) matches mail.ErrPermanent. Every failure before that is temporary,
-// 5xx included: a refused greeting, STARTTLS or AUTH (a rotated password) is the transport's
-// configuration, and the message goes out once it is fixed. 4xx replies, network errors and a
+// sender, recipient or content) matches mail.ErrPermanent, except 530 (authentication required).
+// Every failure before that is temporary, 5xx included: a refused greeting, STARTTLS or AUTH (a
+// rotated password) is the transport's configuration, and the message goes out once it is fixed. 4xx replies, network errors and a
 // cancelled context are temporary too.
 func (t *Transport) Send(ctx context.Context, message *mail.Message) error {
 	// The Mailer validated already; a transport used on its own (a jobs handler) must not put an
@@ -238,7 +238,8 @@ func (t *Transport) failure(ctx context.Context, step string, err error, message
 		return fmt.Errorf("smtp %s %s: %w (%v)", step, t.address, ctxErr, err) //nolint:errorlint // LIB-010: only the context error is API
 	}
 	var reply *textproto.Error
-	if messageStep && errors.As(err, &reply) && reply.Code >= 500 {
+	// 530 (authentication required) at MAIL or RCPT is the transport's configuration, not the message.
+	if messageStep && errors.As(err, &reply) && reply.Code >= 500 && reply.Code != 530 {
 		return fmt.Errorf("%w: smtp %s %s: %v", mail.ErrPermanent, step, t.address, err) //nolint:errorlint // LIB-010
 	}
 	return fmt.Errorf("smtp %s %s: %v", step, t.address, err) //nolint:errorlint // LIB-010

@@ -133,6 +133,7 @@ func TestSendClassifiesReplies(t *testing.T) {
 		"rejected content":  {command: ".", reply: "554 5.7.1 spam", permanent: true},
 		"mailbox busy":      {command: "MAIL FROM:<a@example.com>", reply: "421 4.3.2 busy"},
 		"refused sender":    {command: "MAIL FROM:<a@example.com>", reply: "553 5.7.1 sender not allowed", permanent: true},
+		"no credentials":    {command: "MAIL FROM:<a@example.com>", reply: "530 5.7.0 Authentication required"},
 	} {
 		server := mailtest.NewSMTPServer(t, &mailtest.SMTPServerOptions{Reply: func(command string) string {
 			if strings.HasPrefix(command, testCase.command) {

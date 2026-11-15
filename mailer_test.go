@@ -157,6 +157,9 @@ func TestValidate(t *testing.T) {
 		"quoted from":                    func(message *mail.Message) { message.From = `"a>b"@example.com` },
 		"quoted reply-to":                func(message *mail.Message) { message.ReplyTo = `"a b"@example.com` },
 		"domain literal":                 func(message *mail.Message) { message.To = []string{"a@[192.0.2.1]"} },
+		"quoted local part with an at":   func(message *mail.Message) { message.To = []string{`"a@evil.example"@corp.example`} },
+		"quoted consecutive dots":        func(message *mail.Message) { message.To = []string{`"a..b"@corp.example`} },
+		"quoted leading dot":             func(message *mail.Message) { message.To = []string{`".a"@corp.example`} },
 	} {
 		message := validMessage()
 		message.From = "noreply@example.com"
