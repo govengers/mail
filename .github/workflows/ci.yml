@@ -1,6 +1,6 @@
 name: CI
 
-# govengers/telemetry, from the library template of govengers/standards (templates/library).
+# govengers/mail, from the library template of govengers/standards (templates/library).
 #
 # Every push and pull request: lint, unit tests of changed and affected packages (TST-014), the end-to-end suite
 # unless it is unchanged (TST-015), vulncheck, and README badges from main. Nightly: every test, uncached, so a
