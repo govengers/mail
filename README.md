@@ -87,7 +87,7 @@ message, err := templates.Render("welcome", user.Locale, data) // de-AT, then de
 message.To = []string{user.Email}
 ```
 
-HTML renders with `html/template` (data is escaped; Outlook's conditional comments survive), the text part with `text/template`. Every `href`, `src` and `background` in the rendered HTML must be an absolute `http`, `https` or `mailto` URL, or `Render` fails with `mail.ErrUnsafeLink`. A missing map key is an error, not `<no value>`.
+HTML renders with `html/template` (data is escaped; Outlook's conditional comments survive), the text part with `text/template`. Every `href`, `src`, `background`, `action`, `formaction`, `poster` and `srcset` URL in the rendered HTML must be an absolute `http`, `https` or `mailto` URL, or `Render` fails with `mail.ErrUnsafeLink`. A missing map key is an error, not `<no value>`.
 
 ## Mail from a job
 

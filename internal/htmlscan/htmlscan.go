@@ -16,7 +16,7 @@ type Range struct {
 // style and script elements. An unterminated comment runs to the end of the document.
 func Comments(document string) []Range {
 	var comments []Range
-	lower := strings.ToLower(document)
+	lower := asciiLower(document)
 	for position := 0; position < len(document); {
 		next := strings.IndexByte(document[position:], '<')
 		if next < 0 {
@@ -39,6 +39,18 @@ func Comments(document string) []Range {
 		}
 	}
 	return comments
+}
+
+// asciiLower lowers A-Z only, byte for byte, so offsets into the copy are offsets into document.
+// strings.ToLower changes the byte length of characters such as U+0130 and U+1E9E.
+func asciiLower(document string) string {
+	lower := []byte(document)
+	for index, character := range lower {
+		if 'A' <= character && character <= 'Z' {
+			lower[index] = character + 'a' - 'A'
+		}
+	}
+	return string(lower)
 }
 
 // isRawTextStart reports whether rest starts with the start tag of element.
@@ -68,9 +80,10 @@ func skipRawText(lower string, position int) int {
 	return position + end + len("</"+element)
 }
 
-// Links returns the HTML-unescaped values of every href, src and background attribute, in order.
-// It reads attributes of start tags only, so text, which html/template escapes, never yields a link.
-// Tags inside comments count too: Outlook reads conditional comments.
+// Links returns the HTML-unescaped URLs of every href, src, background, action, formaction and
+// poster attribute and of every srcset candidate, in order. It reads attributes of start tags
+// only, so text, which html/template escapes, never yields a link. Tags inside comments count too:
+// Outlook reads conditional comments.
 func Links(document string) []string {
 	var links []string
 	for position := 0; position < len(document); position++ {
@@ -79,12 +92,26 @@ func Links(document string) []string {
 		}
 		for _, attribute := range attributes(document[position+1:]) {
 			switch strings.ToLower(attribute.name) {
-			case "href", "src", "background":
+			case "href", "src", "background", "action", "formaction", "poster":
 				links = append(links, html.UnescapeString(attribute.value))
+			case "srcset":
+				links = append(links, srcsetURLs(html.UnescapeString(attribute.value))...)
 			}
 		}
 	}
 	return links
+}
+
+// srcsetURLs returns the URL of each comma-separated candidate ("url 2x"). A URL that holds a
+// comma splits into parts that fail the link check, so an odd srcset fails closed.
+func srcsetURLs(srcset string) []string {
+	var urls []string
+	for _, candidate := range strings.Split(srcset, ",") {
+		if fields := strings.Fields(candidate); len(fields) > 0 {
+			urls = append(urls, fields[0])
+		}
+	}
+	return urls
 }
 
 type attribute struct {

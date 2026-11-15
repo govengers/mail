@@ -24,10 +24,15 @@ func TestMain(m *testing.M) {
 
 func TestRecorderKeepsCopiesAndFailsOnRequest(t *testing.T) {
 	recorder := &mailtest.Recorder{}
-	message := &mail.Message{To: []string{"a@example.com"}, Subject: "One", HTML: `<a href="https://example.com/confirm?t=1&amp;x=2">c</a>`}
+	message := &mail.Message{
+		To: []string{"a@example.com"}, Subject: "One", HTML: `<a href="https://example.com/confirm?t=1&amp;x=2">c</a>`,
+		Headers: map[string]string{"X-Tag": "a"}, Attachments: []mail.Attachment{{Filename: "a", Content: []byte("x")}},
+	}
 
 	require.NoError(t, recorder.Send(t.Context(), message))
 	message.To[0] = "changed@example.com"
+	message.Headers["X-Tag"] = "changed"
+	message.Attachments[0].Content[0] = 'y'
 	recorder.FailWith(errors.New("down"))
 	require.ErrorContains(t, recorder.Send(t.Context(), message), "down")
 	recorder.FailWith(nil)
@@ -35,6 +40,8 @@ func TestRecorderKeepsCopiesAndFailsOnRequest(t *testing.T) {
 	messages := recorder.Messages()
 	require.Len(t, messages, 1)
 	require.Equal(t, []string{"a@example.com"}, messages[0].To)
+	require.Equal(t, "a", messages[0].Headers["X-Tag"])
+	require.Equal(t, []byte("x"), messages[0].Attachments[0].Content)
 	require.Equal(t, []string{"https://example.com/confirm?t=1&x=2"}, mailtest.Links(messages[0]))
 	recorder.Reset()
 	require.Empty(t, recorder.Messages())

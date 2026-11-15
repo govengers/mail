@@ -4,7 +4,9 @@
 package mailtest
 
 import (
+	"bytes"
 	"context"
+	"maps"
 	"slices"
 	"sync"
 
@@ -29,7 +31,11 @@ func (r *Recorder) Send(_ context.Context, message *mail.Message) error {
 	}
 	copied := *message
 	copied.To = slices.Clone(message.To)
+	copied.Headers = maps.Clone(message.Headers)
 	copied.Attachments = slices.Clone(message.Attachments)
+	for index := range copied.Attachments {
+		copied.Attachments[index].Content = bytes.Clone(message.Attachments[index].Content)
+	}
 	r.messages = append(r.messages, &copied)
 	return nil
 }
@@ -55,8 +61,8 @@ func (r *Recorder) Reset() {
 	r.messages = nil
 }
 
-// Links returns the href, src and background URLs of the message's HTML in order, to follow a
-// confirmation link in a test.
+// Links returns the link URLs (href, src, background, action, formaction, poster, srcset) of the
+// message's HTML in order, to follow a confirmation link in a test.
 func Links(message *mail.Message) []string {
 	return htmlscan.Links(message.HTML)
 }
