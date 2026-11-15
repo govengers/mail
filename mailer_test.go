@@ -125,6 +125,8 @@ func TestNewValidatesItsOptions(t *testing.T) {
 	require.Error(t, err)
 	_, err = mail.New(&mail.Options{Transport: &capture{}, From: "not an address"})
 	require.Error(t, err)
+	_, err = mail.New(&mail.Options{Transport: &capture{}, From: `"a> SIZE=1"@example.com`})
+	require.Error(t, err)
 }
 
 func TestValidate(t *testing.T) {
@@ -145,6 +147,16 @@ func TestValidate(t *testing.T) {
 		"attachment media type": func(message *mail.Message) {
 			message.Attachments = []mail.Attachment{{Filename: "a", ContentType: "text/"}}
 		},
+		"attachment media type line break": func(message *mail.Message) {
+			message.Attachments = []mail.Attachment{{Filename: "a", ContentType: "text/plain;\r\n\r\nfoo=bar"}}
+		},
+		"envelope parameters in a quoted recipient": func(message *mail.Message) {
+			message.To = []string{`"attacker@evil.example> NOTIFY=NEVER ORCPT=rfc822;x"@corp.example`}
+		},
+		"quoted local part with a space": func(message *mail.Message) { message.To = []string{`"first last"@example.com`} },
+		"quoted from":                    func(message *mail.Message) { message.From = `"a>b"@example.com` },
+		"quoted reply-to":                func(message *mail.Message) { message.ReplyTo = `"a b"@example.com` },
+		"domain literal":                 func(message *mail.Message) { message.To = []string{"a@[192.0.2.1]"} },
 	} {
 		message := validMessage()
 		message.From = "noreply@example.com"
@@ -162,4 +174,7 @@ func TestValidate(t *testing.T) {
 	message.Attachments = []mail.Attachment{{Filename: "report.pdf", ContentType: "application/pdf", Content: []byte("%PDF")}}
 	message.IdempotencyKey = strings.Repeat("k", 256)
 	require.NoError(t, message.Validate())
+
+	message.To = []string{`"Ada, Lovelace" <ada.lovelace+news@example.com>`, `"ada"@example.com`}
+	require.NoError(t, message.Validate(), "quotes in the display name and quotes the local part does not need")
 }

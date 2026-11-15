@@ -148,6 +148,18 @@ func TestSendClassifiesReplies(t *testing.T) {
 	}
 }
 
+func TestSendRejectsEnvelopeParametersInAQuotedAddress(t *testing.T) {
+	server := mailtest.NewSMTPServer(t, nil)
+	transport := newTransport(t, &smtp.Options{Host: server.Host(), Port: server.Port(), Security: smtp.SecurityNone})
+
+	err := transport.Send(t.Context(), &mail.Message{
+		From: "a@example.com", To: []string{`"attacker@evil.example> NOTIFY=NEVER ORCPT=rfc822;x"@corp.example`}, Subject: "Hi", Text: "x",
+	})
+
+	require.ErrorIs(t, err, mail.ErrInvalidMessage)
+	require.Empty(t, server.Messages())
+}
+
 func TestSendFailsOnWrongCredentials(t *testing.T) {
 	serverTLS, clientTLS := mailtest.TLSConfigs(t)
 	server := mailtest.NewSMTPServer(t, &mailtest.SMTPServerOptions{TLSConfig: serverTLS, Username: "user", Password: "secret"})

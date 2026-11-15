@@ -83,22 +83,38 @@ func (m *Message) Validate() error {
 }
 
 func (m *Message) validateAddresses() error {
-	if _, err := netmail.ParseAddress(m.From); err != nil {
-		return fmt.Errorf("from %q: %v", m.From, err) //nolint:errorlint // LIB-010: net/mail's parse errors are not part of the API
+	if err := validateAddress(m.From); err != nil {
+		return fmt.Errorf("from %q: %w", m.From, err)
 	}
 	if len(m.To) == 0 {
 		return errors.New("no recipient")
 	}
 	for _, recipient := range m.To {
-		if _, err := netmail.ParseAddress(recipient); err != nil {
-			return fmt.Errorf("to %q: %v", recipient, err) //nolint:errorlint // LIB-010
+		if err := validateAddress(recipient); err != nil {
+			return fmt.Errorf("to %q: %w", recipient, err)
 		}
 	}
 	if m.ReplyTo == "" {
 		return nil
 	}
-	if _, err := netmail.ParseAddress(m.ReplyTo); err != nil {
-		return fmt.Errorf("reply-to %q: %v", m.ReplyTo, err) //nolint:errorlint // LIB-010
+	if err := validateAddress(m.ReplyTo); err != nil {
+		return fmt.Errorf("reply-to %q: %w", m.ReplyTo, err)
+	}
+	return nil
+}
+
+// validateAddress accepts an RFC 5322 address whose addr-spec can go into an SMTP envelope as it
+// is. net/mail unquotes a quoted local part, and net/smtp writes MAIL FROM:<%s> and RCPT TO:<%s>
+// unescaped, so a local part with a space or a '>' would end the path and append parameters
+// ("a@evil.example> NOTIFY=NEVER"@corp.example). Quoted local parts that need their quotes and
+// domain literals are therefore rejected.
+func validateAddress(value string) error {
+	address, err := netmail.ParseAddress(value)
+	if err != nil {
+		return errors.New(err.Error()) // LIB-010: net/mail's parse errors are not part of the API
+	}
+	if strings.ContainsFunc(address.Address, func(r rune) bool { return r <= ' ' || r == 0x7f || strings.ContainsRune(`<>"\()[],;:`, r) }) {
+		return errors.New("a quoted local part or a domain literal is not supported")
 	}
 	return nil
 }
@@ -122,6 +138,9 @@ func (a *Attachment) validate() error {
 	}
 	if a.ContentType == "" {
 		return nil
+	}
+	if strings.ContainsAny(a.ContentType, "\r\n") {
+		return fmt.Errorf("content type %q spans several lines", a.ContentType)
 	}
 	if _, _, err := mime.ParseMediaType(a.ContentType); err != nil {
 		return fmt.Errorf("content type %q: %v", a.ContentType, err) //nolint:errorlint // LIB-010

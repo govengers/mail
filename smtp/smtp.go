@@ -122,6 +122,11 @@ func orDefault[T comparable](value, fallback T) T {
 // Send delivers the message on a new connection. A 5xx reply of the server matches
 // mail.ErrPermanent; a 4xx reply, a network error and a cancelled context do not.
 func (t *Transport) Send(ctx context.Context, message *mail.Message) error {
+	// The Mailer validated already; a transport used on its own (a jobs handler) must not put an
+	// unchecked address into the envelope either.
+	if err := message.Validate(); err != nil {
+		return fmt.Errorf("smtp: %w", err)
+	}
 	data, err := compose(message, time.Now())
 	if err != nil {
 		return fmt.Errorf("%w: %w: smtp: %v", mail.ErrPermanent, mail.ErrInvalidMessage, err) //nolint:errorlint // LIB-010

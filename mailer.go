@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	netmail "net/mail"
 	"time"
 )
 
@@ -37,8 +36,8 @@ func New(options *Options) (*Mailer, error) {
 		return nil, errors.New("mail: Options.Transport is required")
 	}
 	if options.From != "" {
-		if _, err := netmail.ParseAddress(options.From); err != nil {
-			return nil, fmt.Errorf("mail: Options.From %q: %v", options.From, err) //nolint:errorlint // LIB-010
+		if err := validateAddress(options.From); err != nil {
+			return nil, fmt.Errorf("mail: Options.From %q: %w", options.From, err)
 		}
 	}
 	return &Mailer{transport: options.Transport, from: options.From, observer: options.Observer}, nil
