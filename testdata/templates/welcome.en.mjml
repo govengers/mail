@@ -1,0 +1,11 @@
+<mj-head>
+  <mj-preview>Confirm your address to start</mj-preview>
+</mj-head>
+<mj-section background-color="#ffffff">
+  <mj-column>
+    <mj-text>Hello {{.Name}},</mj-text>
+    <mj-text>please confirm your address.</mj-text>
+    <mj-button href="{{.ConfirmURL}}">Confirm</mj-button>
+    <mj-text>{{range .Tasks}}<p>{{.}}</p>{{end}}</mj-text>
+  </mj-column>
+</mj-section>

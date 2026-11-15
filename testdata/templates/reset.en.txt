@@ -1,0 +1,4 @@
+{{define "subject"}}
+  Reset your password
+{{end -}}
+Reset your password: {{.ResetURL}}

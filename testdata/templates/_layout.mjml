@@ -1,0 +1,22 @@
+<mjml>
+  <mj-head>
+    <mj-attributes>
+      <mj-all font-family="Arial, sans-serif" />
+      <mj-text color="#333333" font-size="16px" line-height="1.5" />
+    </mj-attributes>
+    <!-- mail:head -->
+  </mj-head>
+  <mj-body background-color="#f4f4f5" width="600px">
+    <mj-section background-color="#ffffff">
+      <mj-column>
+        <mj-text font-size="20px" font-weight="bold">{{.Product}}</mj-text>
+      </mj-column>
+    </mj-section>
+    <!-- mail:content -->
+    <mj-section>
+      <mj-column>
+        <mj-text font-size="12px" color="#71717a">Sent by {{.Product}} - <a href="mailto:support@example.com">support@example.com</a></mj-text>
+      </mj-column>
+    </mj-section>
+  </mj-body>
+</mjml>
