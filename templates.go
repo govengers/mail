@@ -18,7 +18,9 @@ var (
 	// ErrTemplateNotFound is returned by Render for a name without templates.
 	ErrTemplateNotFound = errors.New("mail: template not found")
 	// ErrUnsafeLink is returned by Render when the HTML holds a link that is not an absolute
-	// http, https or mailto URL: a relative link, javascript:, or an empty value.
+	// http, https or mailto URL: a relative link, javascript:, or an empty value. The error names
+	// the template and the link's position, never the link: it can carry a bearer token, and the
+	// error text ends up in logs and in a job's last error.
 	ErrUnsafeLink = errors.New("mail: unsafe link")
 )
 
@@ -214,6 +216,13 @@ func parseHTML(name, document string) (*htmltemplate.Template, error) {
 	return parsed, nil
 }
 
+// Has reports whether t holds the template name. Render then finds a variant for every locale,
+// because every template exists in the default locale.
+func (t *Templates) Has(name string) bool {
+	_, ok := t.variants[name]
+	return ok
+}
+
 // Render renders the template name in locale, falling back to less specific locales and then
 // to the default (de-AT, de, en), and returns a Message with Subject, HTML and Text set; the
 // caller adds the recipients. The subject is one line with whitespace collapsed, the text part is
@@ -244,9 +253,9 @@ func (v *variant) render(data any) (*Message, error) {
 	if err := v.html.Execute(&html, data); err != nil {
 		return nil, fmt.Errorf("mail: render the HTML: %w", err)
 	}
-	for _, link := range htmlscan.Links(html.String()) {
+	for index, link := range htmlscan.Links(html.String()) {
 		if !safeLink(link) {
-			return nil, fmt.Errorf("%w: %q in %s", ErrUnsafeLink, link, v.html.Name())
+			return nil, fmt.Errorf("%w: link %d in %s is not an absolute http, https or mailto URL", ErrUnsafeLink, index+1, v.html.Name())
 		}
 	}
 	return &Message{

@@ -78,7 +78,10 @@ func TestRenderRefusesUnsafeLinks(t *testing.T) {
 		_, err := templates.Render("reset", "en", map[string]string{"Product": "Tasks", "ResetURL": link})
 		require.ErrorIs(t, err, mail.ErrUnsafeLink, link)
 	}
-	_, err := templates.Render("reset", "en", map[string]string{"Product": "Tasks", "ResetURL": "HTTPS://example.com/x"})
+	_, err := templates.Render("reset", "en", map[string]string{"Product": "Tasks", "ResetURL": "/reset#token=bearer-secret"})
+	require.ErrorIs(t, err, mail.ErrUnsafeLink)
+	require.NotContains(t, err.Error(), "bearer-secret", "the link can carry a token, so the error does not quote it")
+	_, err = templates.Render("reset", "en", map[string]string{"Product": "Tasks", "ResetURL": "HTTPS://example.com/x"})
 	require.NoError(t, err)
 }
 
@@ -87,6 +90,8 @@ func TestRenderFailsForAnUnknownTemplateAndMissingData(t *testing.T) {
 
 	_, err := templates.Render("unknown", "en", nil)
 	require.ErrorIs(t, err, mail.ErrTemplateNotFound)
+	require.False(t, templates.Has("unknown"))
+	require.True(t, templates.Has("reset"))
 
 	_, err = templates.Render("reset", "en", map[string]string{"Product": "Tasks"})
 	require.ErrorContains(t, err, "ResetURL")
