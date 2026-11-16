@@ -25,7 +25,7 @@ var (
 
 // Message is one mail. Addresses are RFC 5322 addresses, with or without a display name
 // ("Ada <ada@example.com>" or "ada@example.com"). Transports read a Message and never change it.
-// The JSON form is the payload of jobsadapter's jobs.
+// The JSON form is part of jobsadapter's job payload.
 type Message struct {
 	From    string   `json:"from,omitempty"` // empty takes the Mailer's Options.From
 	To      []string `json:"to"`             // at least one
