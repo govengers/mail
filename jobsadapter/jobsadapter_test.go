@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"sync"
 	"testing"
 	"testing/fstest"
@@ -244,24 +245,34 @@ func TestNumbersRenderWithEveryDigit(t *testing.T) {
 	require.Equal(t, "Order 18446744073709551615", recorder.Messages()[0].Subject)
 }
 
+// resetReference is the data of a reset mail that references the secret instead of carrying it.
+type resetReference struct {
+	Name      string
+	RequestID string
+}
+
 func TestResolveTurnsAReferenceIntoTemplateDataWhenTheJobRuns(t *testing.T) {
 	recorder := &mailtest.Recorder{}
 	tokens := map[string]string{"request-1": "bearer-secret"} // the application's reset requests
-	sender := newSender(t, &jobsadapter.Options{Transport: recorder, Resolve: func(_ context.Context, template string, data any) (any, error) {
-		reference := data.(map[string]any)
-		token, ok := tokens[reference["RequestID"].(string)]
+	resolveReset := func(_ context.Context, data json.RawMessage) (any, error) {
+		var reference resetReference
+		if err := json.Unmarshal(data, &reference); err != nil {
+			return nil, jobs.Permanent(err)
+		}
+		token, ok := tokens[reference.RequestID]
 		if !ok {
 			return nil, jobs.Permanent(errors.New("the reset request was used or revoked"))
 		}
-		return &resetData{Name: reference["Name"].(string), ResetURL: "https://tasks.example.com/reset#token=" + token}, nil
-	}})
+		return &resetData{Name: reference.Name, ResetURL: "https://tasks.example.com/reset#token=" + token}, nil
+	}
+	sender := newSender(t, &jobsadapter.Options{Transport: recorder, Resolve: map[string]jobsadapter.ResolveFunc{"reset": resolveReset}})
 	worker, jobStore := newWorker(t, sender)
 
-	payload, err := sender.Template("reset", "en", map[string]string{"Name": "Ada", "RequestID": "request-1"}, envelope())
-	require.NoError(t, err, "with Resolve the stored data is a reference, so Template does not render it")
+	payload, err := sender.Template("reset", "en", &resetReference{Name: "Ada", RequestID: "request-1"}, envelope())
+	require.NoError(t, err, "with a ResolveFunc the stored data is a reference, so Template does not render it")
 	sent := jobStore.enqueue(t, payload)
 	require.NotContains(t, string(jobStore.payloads[sent]), "bearer-secret")
-	payload, err = sender.Template("reset", "en", map[string]string{"Name": "Ada", "RequestID": "request-2"}, envelope())
+	payload, err = sender.Template("reset", "en", &resetReference{Name: "Ada", RequestID: "request-2"}, envelope())
 	require.NoError(t, err)
 	revoked := jobStore.enqueue(t, payload)
 
@@ -281,8 +292,8 @@ func TestResolveErrorsRetryUnlessPermanent(t *testing.T) {
 		{err: errors.New("database unavailable"), status: jobs.StatusPending},
 		{err: fmt.Errorf("%w: unknown request", mail.ErrPermanent), status: jobs.StatusDead},
 	} {
-		sender := newSender(t, &jobsadapter.Options{Transport: &mailtest.Recorder{}, Resolve: func(context.Context, string, any) (any, error) {
-			return nil, testCase.err
+		sender := newSender(t, &jobsadapter.Options{Transport: &mailtest.Recorder{}, Resolve: map[string]jobsadapter.ResolveFunc{
+			"reset": func(context.Context, json.RawMessage) (any, error) { return nil, testCase.err },
 		}})
 		worker, jobStore := newWorker(t, sender)
 		payload, err := sender.Template("reset", "en", nil, envelope())
@@ -293,6 +304,67 @@ func TestResolveErrorsRetryUnlessPermanent(t *testing.T) {
 
 		require.Equal(t, testCase.status, jobStore.status(id), testCase.err.Error())
 	}
+}
+
+// A ResolveFunc is per template: the other templates still render at enqueue, and every template
+// name is checked there.
+func TestTemplatesWithoutAResolveFuncStillRenderAtEnqueue(t *testing.T) {
+	sender := newSender(t, &jobsadapter.Options{Transport: &mailtest.Recorder{}, Resolve: map[string]jobsadapter.ResolveFunc{
+		"reset": func(context.Context, json.RawMessage) (any, error) { return &resetData{ResetURL: resetURL}, nil },
+	}})
+
+	_, err := sender.Template("reset", "en", &resetReference{RequestID: "request-1"}, envelope())
+	require.NoError(t, err)
+	_, err = sender.Template("receipt", "en", map[string]string{}, envelope())
+	require.ErrorContains(t, err, "Order", "a template without a ResolveFunc renders at enqueue")
+	_, err = sender.Template("recipt", "en", map[string]string{"Order": "1"}, envelope())
+	require.ErrorIs(t, err, mail.ErrTemplateNotFound, "a typo fails in the caller's transaction, not after ten attempts")
+}
+
+// The handler's error text is stored as the job's last error and shown in the admin listing, so a
+// render failure must not carry the bearer link: neither one Resolve returns nor one from sealed data.
+func TestARenderFailureInTheJobStoresNoSecretInTheLastError(t *testing.T) {
+	relative := newSender(t, &jobsadapter.Options{Transport: &mailtest.Recorder{}, Resolve: map[string]jobsadapter.ResolveFunc{
+		"reset": func(context.Context, json.RawMessage) (any, error) {
+			return &resetData{ResetURL: "/reset#token=bearer-secret"}, nil // the public base URL is missing in configuration
+		},
+	}})
+	worker, jobStore := newWorker(t, relative)
+	payload, err := relative.Template("reset", "en", &resetReference{RequestID: "request-1"}, envelope())
+	require.NoError(t, err)
+	resolved := jobStore.enqueue(t, payload)
+	jobstest.Drain(t, worker)
+
+	sealer := newSealer(t)
+	enqueuing := newSender(t, &jobsadapter.Options{Transport: &mailtest.Recorder{}, Sealer: sealer})
+	payload, err = enqueuing.Template("reset", "en", &resetData{ResetURL: resetURL}, envelope())
+	require.NoError(t, err)
+	deployed := maps.Clone(templateFiles) // a template deployed after the enqueue breaks the link
+	deployed["reset.en.html"] = &fstest.MapFile{Data: []byte(`<a href="x{{.ResetURL}}">reset</a>`)}
+	sealedWorker, sealedStore := newWorker(t, newSender(t, &jobsadapter.Options{Transport: &mailtest.Recorder{}, Sealer: sealer, Templates: newTemplates(t, deployed)}))
+	sealed := sealedStore.enqueue(t, payload)
+	jobstest.Drain(t, sealedWorker)
+
+	for _, finish := range []*jobs.Finish{jobStore.finished[resolved], sealedStore.finished[sealed]} {
+		require.Equal(t, jobs.StatusDead, finish.Status)
+		require.Contains(t, finish.Error, "unsafe link")
+		require.NotContains(t, finish.Error, "bearer-secret")
+	}
+}
+
+func TestTheQueuedPayloadDoesNotShareTheEnvelopeWithTheCaller(t *testing.T) {
+	sender := newSender(t, &jobsadapter.Options{Transport: &mailtest.Recorder{}})
+	reused := envelope()
+	reused.Headers = map[string]string{"X-Campaign": "invite"}
+	reused.Attachments = []mail.Attachment{{Filename: "a.txt", Content: []byte("a")}}
+
+	payload, err := sender.Template("reset", "en", &resetData{ResetURL: resetURL}, reused)
+	require.NoError(t, err)
+	reused.To[0], reused.Headers["X-Campaign"], reused.Attachments[0].Filename = "bob@example.com", "other", "b.txt"
+
+	require.Equal(t, []string{"ada@example.com"}, payload.Message.To)
+	require.Equal(t, "invite", payload.Message.Headers["X-Campaign"])
+	require.Equal(t, "a.txt", payload.Message.Attachments[0].Filename)
 }
 
 // A worker that cannot render yet retries: during a rolling deploy an older replica may claim a
