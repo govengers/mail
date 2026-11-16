@@ -350,6 +350,15 @@ func TestARenderFailureInTheJobStoresNoSecretInTheLastError(t *testing.T) {
 		require.Contains(t, finish.Error, "unsafe link")
 		require.NotContains(t, finish.Error, "bearer-secret")
 	}
+
+	// text/template's reason for an action that does not fit the data prints the value.
+	deployed["reset.en.html"] = &fstest.MapFile{Data: []byte(`{{range .ResetURL}}{{.}}{{end}}`)}
+	rangeWorker, rangeStore := newWorker(t, newSender(t, &jobsadapter.Options{Transport: &mailtest.Recorder{}, Sealer: sealer, Templates: newTemplates(t, deployed)}))
+	ranged := rangeStore.enqueue(t, payload)
+	jobstest.Drain(t, rangeWorker)
+	require.Equal(t, jobs.StatusDead, rangeStore.finished[ranged].Status)
+	require.Contains(t, rangeStore.finished[ranged].Error, "at <.ResetURL>")
+	require.NotContains(t, rangeStore.finished[ranged].Error, "bearer-secret")
 }
 
 func TestTheQueuedPayloadDoesNotShareTheEnvelopeWithTheCaller(t *testing.T) {

@@ -94,7 +94,33 @@ func TestRenderFailsForAnUnknownTemplateAndMissingData(t *testing.T) {
 	require.True(t, templates.Has("reset"))
 
 	_, err = templates.Render("reset", "en", map[string]string{"Product": "Tasks"})
-	require.ErrorContains(t, err, "ResetURL")
+	require.ErrorContains(t, err, `map has no entry for key "ResetURL"`, "a missing key's reason names only the field")
+}
+
+// text/template's reason for a failed action can print the data ("range can't iterate over
+// <value>"), and the data can hold a bearer link, so Render keeps only the location and the action.
+func TestARenderErrorNamesTheActionButNeverQuotesTheData(t *testing.T) {
+	text := `{{define "subject"}}S{{end}}body`
+	templates, err := mail.NewTemplates(&mail.TemplatesOptions{FS: fstest.MapFS{
+		"range.en.html":   file(`<p>{{range .Link}}{{.}}{{end}}</p>`),
+		"range.en.txt":    file(text),
+		"eq.en.html":      file(`<p>x</p>`),
+		"eq.en.txt":       file(`{{define "subject"}}S{{end}}{{if eq .Link .Link}}same{{end}}`),
+		"subject.en.html": file(`<p>x</p>`),
+		"subject.en.txt":  file(`{{define "subject"}}{{range .Link}}{{.}}{{end}}{{end}}body`),
+	}, DefaultLocale: "en"})
+	require.NoError(t, err)
+
+	for name, data := range map[string]any{
+		"range":   map[string]any{"Link": "https://tasks.example.com/accept#token=bearer-secret"},
+		"eq":      map[string]any{"Link": map[string]any{"u": "https://tasks.example.com/accept#token=bearer-secret"}},
+		"subject": map[string]any{"Link": "https://tasks.example.com/accept#token=bearer-secret"},
+	} {
+		_, err := templates.Render(name, "en", data)
+		require.ErrorContains(t, err, "at <", name)
+		require.ErrorContains(t, err, ".Link", name)
+		require.NotContains(t, err.Error(), "bearer-secret", name)
+	}
 }
 
 func TestRenderIsSafeForConcurrentUse(t *testing.T) {
