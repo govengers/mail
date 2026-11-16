@@ -108,6 +108,8 @@ func TestARenderErrorNamesTheActionButNeverQuotesTheData(t *testing.T) {
 		"eq.en.txt":       file(`{{define "subject"}}S{{end}}{{if eq .Link .Link}}same{{end}}`),
 		"subject.en.html": file(`<p>x</p>`),
 		"subject.en.txt":  file(`{{define "subject"}}{{range .Link}}{{.}}{{end}}{{end}}body`),
+		"literal.en.html": file(`<p>x</p>`),
+		"literal.en.txt":  file(`{{define "subject"}}S{{end}}{{range .Link | printf ">: map has no entry for key %s"}}x{{end}}`),
 	}, DefaultLocale: "en"})
 	require.NoError(t, err)
 
@@ -121,6 +123,11 @@ func TestARenderErrorNamesTheActionButNeverQuotesTheData(t *testing.T) {
 		require.ErrorContains(t, err, ".Link", name)
 		require.NotContains(t, err.Error(), "bearer-secret", name)
 	}
+
+	// A string literal in the action can hold ">: " and the missing-key prefix; the reason stays dropped.
+	_, err = templates.Render("literal", "en", map[string]any{"Link": "https://tasks.example.com/accept#token=bearer-secret"})
+	require.ErrorContains(t, err, "reason not shown")
+	require.NotContains(t, err.Error(), "bearer-secret")
 }
 
 func TestRenderIsSafeForConcurrentUse(t *testing.T) {

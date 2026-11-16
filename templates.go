@@ -277,14 +277,16 @@ func withoutData(err error) error {
 		return err // an escape error of the template source, it holds no data
 	}
 	// "template: name:1:2: executing \"name\" at <action>: reason". The first ">: " is never after
-	// the action's end, so the kept part never holds data.
+	// the action's end, so the kept part never holds data. A missing key's reason is kept only when
+	// that ">: " is the only one: a string literal in the action can hold ">: " and the prefix too.
 	message := execError.Error()
 	end := strings.Index(message, ">: ")
 	if end < 0 {
 		return fmt.Errorf("template: %s: reason not shown, it can quote the data", execError.Name)
 	}
 	reason := message[end+len(">: "):]
-	if strings.HasPrefix(reason, "map has no entry for key ") || strings.HasPrefix(reason, "nil data; no entry for key ") {
+	missingKey := strings.HasPrefix(reason, "map has no entry for key ") || strings.HasPrefix(reason, "nil data; no entry for key ")
+	if missingKey && strings.Count(message, ">: ") == 1 {
 		return err
 	}
 	return errors.New(message[:end+1] + ": reason not shown, it can quote the data")
