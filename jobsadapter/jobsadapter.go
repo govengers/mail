@@ -57,7 +57,8 @@ var Kind = jobs.NewKind[Payload]("mail.send", &jobs.KindOptions{Queue: "mail"})
 
 // Payload is the payload of a mail job: a template mail rendered when the job runs, or, with an
 // empty Template, a message rendered by the caller and sent as it is. Build a template mail's
-// payload with Sender.Template, which encodes and seals the data and checks that it renders.
+// payload with Sender.Template, which encodes the data, seals it when the Sender has a Sealer, and
+// renders it once unless the template has a ResolveFunc.
 type Payload struct {
 	Template string `json:"template,omitempty"` // the template name; empty sends Message as it is
 	Locale   string `json:"locale,omitempty"`   // the requested locale; Render falls back from it
