@@ -18,7 +18,9 @@ var (
 	// ErrTemplateNotFound is returned by Render for a name without templates.
 	ErrTemplateNotFound = errors.New("mail: template not found")
 	// ErrUnsafeLink is returned by Render when the HTML holds a link that is not an absolute
-	// http, https or mailto URL: a relative link, javascript:, or an empty value.
+	// http, https or mailto URL: a relative link, javascript:, or an empty value. The error names
+	// the template and the link's position, never the link: it can carry a bearer token, and the
+	// error text ends up in logs and in a job's last error.
 	ErrUnsafeLink = errors.New("mail: unsafe link")
 )
 
@@ -214,12 +216,21 @@ func parseHTML(name, document string) (*htmltemplate.Template, error) {
 	return parsed, nil
 }
 
+// Has reports whether t holds the template name. Render then finds a variant for every locale,
+// because every template exists in the default locale.
+func (t *Templates) Has(name string) bool {
+	_, ok := t.variants[name]
+	return ok
+}
+
 // Render renders the template name in locale, falling back to less specific locales and then
 // to the default (de-AT, de, en), and returns a Message with Subject, HTML and Text set; the
 // caller adds the recipients. The subject is one line with whitespace collapsed, the text part is
 // trimmed. It fails with ErrTemplateNotFound for an unknown name, with ErrUnsafeLink for a link in
 // the HTML that is not absolute http, https or mailto, and with the template's error for data
-// that does not fit (a missing map key is an error).
+// that does not fit (a missing map key is an error). The error never quotes the data: it names the
+// template position and the failing action, and drops text/template's reason except for a missing
+// key.
 func (t *Templates) Render(name, locale string, data any) (*Message, error) {
 	locales, ok := t.variants[name]
 	if !ok {
@@ -236,17 +247,17 @@ func (t *Templates) Render(name, locale string, data any) (*Message, error) {
 func (v *variant) render(data any) (*Message, error) {
 	var subject, text, html strings.Builder
 	if err := v.text.ExecuteTemplate(&subject, "subject", data); err != nil {
-		return nil, fmt.Errorf("mail: render the subject: %w", err)
+		return nil, fmt.Errorf("mail: render the subject: %w", withoutData(err))
 	}
 	if err := v.text.Execute(&text, data); err != nil {
-		return nil, fmt.Errorf("mail: render the text: %w", err)
+		return nil, fmt.Errorf("mail: render the text: %w", withoutData(err))
 	}
 	if err := v.html.Execute(&html, data); err != nil {
-		return nil, fmt.Errorf("mail: render the HTML: %w", err)
+		return nil, fmt.Errorf("mail: render the HTML: %w", withoutData(err))
 	}
-	for _, link := range htmlscan.Links(html.String()) {
+	for index, link := range htmlscan.Links(html.String()) {
 		if !safeLink(link) {
-			return nil, fmt.Errorf("%w: %q in %s", ErrUnsafeLink, link, v.html.Name())
+			return nil, fmt.Errorf("%w: link %d in %s is not an absolute http, https or mailto URL", ErrUnsafeLink, index+1, v.html.Name())
 		}
 	}
 	return &Message{
@@ -254,6 +265,31 @@ func (v *variant) render(data any) (*Message, error) {
 		HTML:    html.String(),
 		Text:    strings.TrimSpace(text.String()) + "\n",
 	}, nil
+}
+
+// withoutData cuts a template execution error after the failing action. The standard library's
+// reason can quote the data ("range can't iterate over <value>", eq's "non-comparable type
+// <value>"), and the data can carry a bearer token (M19). The location and the action are template
+// source, and a missing key's reason names only the template's field, so those are kept.
+func withoutData(err error) error {
+	var execError texttemplate.ExecError
+	if !errors.As(err, &execError) {
+		return err // an escape error of the template source, it holds no data
+	}
+	// "template: name:1:2: executing \"name\" at <action>: reason". The first ">: " is never after
+	// the action's end, so the kept part never holds data. A missing key's reason is kept only when
+	// that ">: " is the only one: a string literal in the action can hold ">: " and the prefix too.
+	message := execError.Error()
+	end := strings.Index(message, ">: ")
+	if end < 0 {
+		return fmt.Errorf("template: %s: reason not shown, it can quote the data", execError.Name)
+	}
+	reason := message[end+len(">: "):]
+	missingKey := strings.HasPrefix(reason, "map has no entry for key ") || strings.HasPrefix(reason, "nil data; no entry for key ")
+	if missingKey && strings.Count(message, ">: ") == 1 {
+		return err
+	}
+	return errors.New(message[:end+1] + ": reason not shown, it can quote the data")
 }
 
 // safeLink reports whether link is an absolute http or https URL with a host, or a mailto URL.

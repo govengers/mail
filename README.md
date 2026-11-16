@@ -26,7 +26,7 @@ go get github.com/govengers/mail
 | `mail/mailtest` | root | `Recorder`, fake SMTP and Resend servers, `Parse`, `Links`, `TLSConfigs` | standard library |
 | `mail/prometheusadapter` | root | `Metrics`, an `Observer` on the caller's registry | client_golang |
 | `mail/oteladapter` | root | `NewTransport`: a client span per send | OpenTelemetry API |
-| `mail/jobsadapter` | `github.com/govengers/mail/jobsadapter` | `Handle`: send from a govengers/jobs job, job ID as idempotency key | govengers/jobs |
+| `mail/jobsadapter` | `github.com/govengers/mail/jobsadapter` | `Sender`: a template mail as a job payload (sealed or resolved data), rendered and sent when the job runs, job ID as idempotency key | govengers/jobs |
 | `cmd/mailgen` | `github.com/govengers/mail/cmd/mailgen` | build-time MJML compiler with a drift check | gomjml |
 
 A service that only sends over SMTP imports `mail` and `mail/smtp` and builds with the standard library alone.
@@ -92,11 +92,14 @@ HTML renders with `html/template` (data is escaped; Outlook's conditional commen
 ## Mail from a job
 
 ```go
-err := jobsadapter.Handle(worker, jobsadapter.Kind, mailer)                     // main
-_, err = store.Enqueue(ctx, transaction, jobsadapter.Kind.New(*message, nil))   // in the user's transaction
+sender, err := jobsadapter.New(&jobsadapter.Options{Transport: mailer, Templates: templates, Sealer: sealer}) // main
+err = sender.Handle(worker, jobsadapter.Kind)                                                               // main
+
+payload, err := sender.Template("reset", user.Locale, data, &mail.Message{To: []string{user.Email}})         // in the user's transaction
+_, err = store.Enqueue(ctx, transaction, jobsadapter.Kind.New(payload, nil))
 ```
 
-`jobsadapter.Kind` is `mail.send` on the queue `mail`; declare your own `jobs.NewKind[mail.Message]` for another queue or backoff. The job's ID becomes the message's `IdempotencyKey`, so the Resend transport delivers once across retries. SMTP has no idempotency: a retry after a lost reply delivers twice (at least once), with the same Message-ID. A permanent failure ends the job as dead at once.
+The payload is a reference, not the mail: template, locale, recipients and the template data, rendered when the job runs, so no reset or invitation link sits in the jobs table. `Template` checks the template name and, for a template without a resolve function, renders once at enqueue, so a broken template or missing data fails in the caller's transaction. With a `Sealer` the data is sealed at rest; without one, put secrets behind a reference that the template's function in `Options.Resolve` loads when the job runs. A mail without secrets may be rendered by the caller and sent as `jobsadapter.Payload{Message: *message}`. `jobsadapter.Kind` is `mail.send` on the queue `mail`; declare your own `jobs.NewKind[jobsadapter.Payload]` for another queue or backoff. The job's ID becomes the message's `IdempotencyKey`, so the Resend transport delivers once across retries. SMTP has no idempotency: a retry after a lost reply delivers twice (at least once), with the same Message-ID. A permanent failure ends the job as dead at once.
 
 ## Tests
 

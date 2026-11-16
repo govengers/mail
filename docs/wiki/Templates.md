@@ -65,7 +65,7 @@ The subject is collapsed to one line. With a `_layout.txt`, the file's body is t
 
 ## Rendering
 
-`templates.Render(name, locale, data)` tries the locale, its parents (`de-AT`, `de`), then the default, and returns a `*mail.Message` with `Subject`, `HTML` and `Text`. Data in HTML is escaped by `html/template`; a URL in an attribute is filtered. A missing map key is an error. Every `href`, `src`, `background`, `action`, `formaction`, `poster` and `srcset` URL in the result must be absolute `http`, `https` or `mailto`, or `Render` returns `mail.ErrUnsafeLink`.
+`templates.Render(name, locale, data)` tries the locale, its parents (`de-AT`, `de`), then the default, and returns a `*mail.Message` with `Subject`, `HTML` and `Text`. Data in HTML is escaped by `html/template`; a URL in an attribute is filtered. A missing map key is an error. Every `href`, `src`, `background`, `action`, `formaction`, `poster` and `srcset` URL in the result must be absolute `http`, `https` or `mailto`, or `Render` returns `mail.ErrUnsafeLink`. The error names the template and the link's position, not the link, because a link can carry a token. For the same reason a template execution error names the position and the action (`at <.Links>`) but not text/template's reason, which can print the value; only a missing key's reason (`map has no entry for key "ResetURL"`) is kept. `templates.Has(name)` checks a name without rendering.
 
 ## Template actions in MJML
 
